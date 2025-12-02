@@ -67,7 +67,7 @@ namespace Archive.Services
                                 // Extract Publisher & Category (For the Shelver)
                                 var meta = epubBook.Schema.Package.Metadata;
                                 if (meta.Publishers.Any()) 
-                                    publisher = meta.Publishers.First();
+                                    publisher = meta.Publishers.First().Publisher ?? "Unknownd";
 
                                 if (meta.Subjects.Any())
                                     category = string.Join(", ", meta.Subjects);
@@ -78,7 +78,8 @@ namespace Archive.Services
                                 else if (meta.Identifiers.Any())
                                     isbn = meta.Identifiers.First().Identifier;
                             }
-                            catch (Exception ex) { Console.WriteLine($"[WARN] Bad EPUB: {fileInfo.Name}"); }
+                            catch (Exception ex) { Console.WriteLine($"[WARN] Bad EPUB: {fileInfo.Name} - {ex.Message}"); 
+                            }
                         }
                         // B. PDF Logic
                         else if (ext == ".pdf")
@@ -103,7 +104,8 @@ namespace Archive.Services
                                     }
                                 }
                             }
-                            catch (Exception ex) { Console.WriteLine($"[WARN] Bad PDF: {fileInfo.Name}"); }
+                            catch (Exception ex) { Console.WriteLine($"[WARN] Bad PDF: {fileInfo.Name} - {ex.Message}"); 
+                            }
                         }
 
                         // --- SAVE TO DB ---

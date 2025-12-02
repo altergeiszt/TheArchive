@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Archive.Components;
-using Archive.Data; // Ensure this matches your namespace
+using Archive.Data; 
+using MudBlazor.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -21,6 +22,7 @@ builder.Services.AddDbContext<LibraryDbContext>(options => options.UseSqlite(con
 builder.Services.AddScoped<Archive.Services.LibraryScanner>();
 builder.Services.AddScoped<Archive.Services.DuplicateService>();
 builder.Services.AddScoped<Archive.Services.ShelverService>();
+builder.Services.AddMudServices();
 
 var app = builder.Build();
 

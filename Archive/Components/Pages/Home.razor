@@ -3,52 +3,93 @@
 @inject LibraryScanner Scanner
 @rendermode InteractiveServer
 
-<PageTitle>Ebook Organizer</PageTitle>
+<PageTitle>Welcome to the Archive</PageTitle>
 
-<div class="container">
-    <h1>📚 Library Command Center</h1>
+<MudContainer MaxWidth="MaxWidth.Medium" Class="mt-8">
     
-    <div class="card p-4 mt-4">
-        <h3>Import Books</h3>
-        <p>Enter the full path to your ebook folder:</p>
-        
-        <div class="input-group mb-3">
-            <input type="text" class="form-control" @bind="folderPath" placeholder="C:\Users\Me\Documents\Books" />
-            <button class="btn btn-primary" @onclick="StartScan" disabled="@isScanning">
-                @(isScanning ? "Scanning..." : "Start Scan")
-            </button>
-        </div>
+    <MudText Typo="Typo.h3" Align="Align.Center" GutterBottom="true">
+        📚 The Archivist4
+    </MudText>
+    <MudText Typo="Typo.subtitle1" Align="Align.Center" Class="mb-8 text-muted">
+        Ingest, Parse, and Organize your collection.
+    </MudText>
 
-        @if (!string.IsNullOrEmpty(statusMessage))
-        {
-            <div class="alert alert-info">@statusMessage</div>
-        }
-    </div>
-</div>
+    <MudCard Elevation="4" Class="pa-4">
+        <MudCardHeader>
+            <CardHeaderContent>
+                <MudText Typo="Typo.h5">Import Books</MudText>
+            </CardHeaderContent>
+            <CardHeaderActions>
+                <MudIcon Icon="@Icons.Material.Filled.CloudUpload" Size= "Size.Medium" Color="Color.Primary" />
+            </CardHeaderActions>
+        </MudCardHeader>
+
+        <MudCardContent>
+            <MudText Class="mb-2">Where is your library located?</MudText>
+            
+            <MudTextField @bind-Value="folderPath" 
+                          Label="Folder Path" 
+                          Variant="Variant.Outlined" 
+                          Adornment="Adornment.Start" 
+                          AdornmentIcon="@Icons.Material.Filled.Folder" 
+                          Placeholder="C:\Users\Me\Documents\Books" 
+                          Class="mb-4" />
+
+            @if (isScanning)
+            {
+                <MudProgressLinear Color="Color.Info" Indeterminate="true" Class="mb-4" />
+                <MudText Align="Align.Center" Class="mb-4">Scanning your shelves...</MudText>
+            }
+        </MudCardContent>
+
+        <MudCardActions>
+            <MudButton Variant="Variant.Filled" 
+                       Color="Color.Primary" 
+                       FullWidth="true" 
+                       Size="Size.Medium"
+                       OnClick="StartScan" 
+                       Disabled="@isScanning">
+                @(isScanning ? "Processing..." : "Start Scan")
+            </MudButton>
+        </MudCardActions>
+    </MudCard>
+
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <MudAlert Severity="@alertSeverity" Variant="Variant.Filled" Class="mt-4" ShowCloseIcon="true">
+            @statusMessage
+        </MudAlert>
+    }
+
+</MudContainer>
 
 @code {
     private string folderPath = "";
     private string statusMessage = "";
     private bool isScanning = false;
+    private Severity alertSeverity = Severity.Info;
 
     private async Task StartScan()
     {
         if (string.IsNullOrWhiteSpace(folderPath) || !System.IO.Directory.Exists(folderPath))
         {
-            statusMessage = "❌ Error: Directory does not exist.";
+            statusMessage = "Error: Directory does not exist.";
+            alertSeverity = Severity.Error;
             return;
         }
 
         isScanning = true;
-        statusMessage = "⏳ Scanning started... check the console for details.";
-        
-        // Run the scan in a background thread so the UI doesn't freeze
+        statusMessage = "";
+        StateHasChanged(); // Force UI update to show spinner
+
+        // Run the scan
         await Task.Run(async () => 
         {
             await Scanner.ScanDirectoryAsync(folderPath);
         });
 
-        statusMessage = "✅ Scan Complete! Check your database.";
+        statusMessage = "Scan Complete! Check your library tab.";
+        alertSeverity = Severity.Success;
         isScanning = false;
     }
 }
