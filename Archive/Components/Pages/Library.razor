@@ -3,63 +3,119 @@
 @using Archive.Models
 @using Archive.Data
 @inject IServiceScopeFactory ScopeFactory
+@inject IDialogService DialogService
 @rendermode InteractiveServer
 
 <PageTitle>My Collection</PageTitle>
 
-<div class="container-fluid">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1>📚 My Collection (@books.Count items)</h1>
-        <button class="btn btn-outline-secondary" @onclick="LoadBooks">🔄 Refresh</button>
-    </div>
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-6" Spacing="4">
+        <MudText Typo="Typo.h3">📚 Library</MudText>
+        <MudSpacer />
+        <MudTextField @bind-Value="searchString" 
+                      Placeholder="Search title, author, or publisher..." 
+                      Adornment="Adornment.Start" 
+                      AdornmentIcon="@Icons.Material.Filled.Search" 
+                      IconSize="Size.Medium" 
+                      Class="mt-0" 
+                      Clearable="true"
+                      Immediate="true" />
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadBooks">
+            Refresh
+        </MudButton>
+    </MudStack>
 
     @if (isLoading)
     {
-        <div class="spinner-border text-primary" role="status">
-            <span class="visually-hidden">Loading...</span>
-        </div>
+        <MudStack AlignItems="AlignItems.Center" Class="mt-10">
+            <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Large" />
+            <MudText Class="mt-2">Dusting off the shelves...</MudText>
+        </MudStack>
+    }
+    else if (!FilteredBooks.Any())
+    {
+        <MudAlert Severity="Severity.Info" Variant="Variant.Filled" Class="mt-4">
+            No books found matching "<strong>@searchString</strong>".
+        </MudAlert>
     }
     else
     {
-        <div class="table-responsive">
-            <table class="table table-hover table-striped">
-                <thead class="table-dark">
-                    <tr>
-                        <th>Title</th>
-                        <th>Author</th>
-                        <th>Format</th>
-                        <th>Size</th>
-                        <th>Action</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var file in books)
-                    {
-                        <tr>
-                            <td>
-                                <strong>@file.Book.Title</strong>
-                                <br/>
-                                <small class="text-muted">@file.FileName</small>
-                            </td>
-                            <td>@file.Book.Author</td>
-                            <td>
-                                <span class="badge bg-secondary">@file.Extension</span>
-                            </td>
-                            <td>@FormatSize(file.SizeBytes)</td>
-                            <td>
-                                <button class="btn btn-sm btn-danger" @onclick="() => DeleteFile(file)">🗑️</button>
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
-        </div>
+        <MudGrid Spacing="3">
+            @foreach (var file in FilteredBooks)
+            {
+                <MudItem xs="12" sm="6" md="4" lg="3">
+                    <MudCard Elevation="3" Class="h-100 d-flex flex-column hover-effect">
+                        
+                        @if (!string.IsNullOrEmpty(file.Book.CoverPath))
+                        {
+                            <MudCardMedia Image="@file.Book.CoverPath" Height="200" />
+                        }
+                        else
+                        {
+                            <div class="d-flex align-center justify-center pa-4" 
+                                 style="@($"height: 200px; background-color: {GetColor(file.Book.Title)}; color: white;")">
+                                <MudText Typo="Typo.h5" Align="Align.Center">@GetInitials(file.Book.Title)</MudText>
+                            </div>
+                        }
+
+                        <MudCardContent Class="flex-grow-1">
+                            <MudText Typo="Typo.h6" Class="text-truncate">@file.Book.Title</MudText>
+                            <MudText Typo="Typo.body2" Class="mb-2">@file.Book.Author</MudText>
+                            
+                            <MudStack Row="true" Spacing="1">
+                                <MudChip T="string" Color="Color.Primary" Size="Size.Small" Variant="Variant.Outlined">
+                                    @file.Extension.ToUpper().Replace(".", "")
+                                </MudChip>
+                                @if (file.Book.Category != "Uncategorized")
+                                {
+                                    <MudChip T="string" Color="Color.Secondary" Size="Size.Small" Variant="Variant.Text">
+                                        @file.Book.Category.Split(',')[0]
+                                    </MudChip>
+                                }
+                            </MudStack>
+                        </MudCardContent>
+
+                        <MudCardActions>
+                            <MudText Typo="Typo.caption" Class="ml-2 text-muted">@FormatSize(file.SizeBytes)</MudText>
+                            <MudSpacer />
+                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="() => ConfirmDelete(file)" />
+                        </MudCardActions>
+                    </MudCard>
+                </MudItem>
+            }
+        </MudGrid>
     }
-</div>
+</MudContainer>
+
+<style>
+    .hover-effect {
+        transition: transform 0.2s;
+    }
+    .hover-effect:hover {
+        transform: translateY(-5px);
+    }
+    .text-truncate {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+</style>
 
 @code {
     private List<LibraryFile> books = new List<LibraryFile>();
     private bool isLoading = true;
+    private string searchString = "";
+
+    // Dynamic Filter Logic
+    private IEnumerable<LibraryFile> FilteredBooks =>
+        string.IsNullOrWhiteSpace(searchString) 
+        ? books 
+        : books.Where(b => 
+            (b.Book.Title?.Contains(searchString, StringComparison.OrdinalIgnoreCase) ?? false) ||
+            (b.Book.Author?.Contains(searchString, StringComparison.OrdinalIgnoreCase) ?? false) ||
+            (b.Book.Publisher?.Contains(searchString, StringComparison.OrdinalIgnoreCase) ?? false)
+        );
 
     protected override async Task OnInitializedAsync()
     {
@@ -69,13 +125,9 @@
     private async Task LoadBooks()
     {
         isLoading = true;
-        // We use a Scope to get a fresh DbContext. 
-        // This is best practice in Blazor Server to avoid threading issues.
         using (var scope = ScopeFactory.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<LibraryDbContext>();
-            
-            // We include the 'Book' data so we can display Title/Author
             books = await db.LibraryFiles
                             .Include(f => f.Book)
                             .OrderBy(f => f.Book.Title)
@@ -84,16 +136,19 @@
         isLoading = false;
     }
 
-    private async Task DeleteFile(LibraryFile file)
+    // --- THIS IS THE METHOD YOU ASKED ABOUT ---
+    private async Task ConfirmDelete(LibraryFile file)
     {
-        bool confirm = await Task.FromResult(true); // Add JS confirm dialog later
-        if (confirm)
+        bool? result = await DialogService.ShowMessageBox(
+            "Warning", 
+            $"Deleting '{file.Book.Title}' cannot be undone!", 
+            yesText:"Delete!", cancelText:"Cancel");
+
+        if (result == true)
         {
             using (var scope = ScopeFactory.CreateScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<LibraryDbContext>();
-                
-                // Find and remove from DB
                 var fileToDelete = await db.LibraryFiles.FindAsync(file.Id);
                 if (fileToDelete != null)
                 {
@@ -101,12 +156,26 @@
                     await db.SaveChangesAsync();
                 }
             }
-            // Remove from UI list
             books.Remove(file);
+            StateHasChanged();
         }
     }
 
-    // Helper to make bytes readable (e.g., 1048576 -> "1.00 MB")
+    // --- Helpers for the "Placeholder Cover" ---
+
+    private string GetColor(string title)
+    {
+        var colors = new[] { "#1E88E5", "#43A047", "#E53935", "#FB8C00", "#8E24AA", "#546E7A" };
+        int index = Math.Abs(title.GetHashCode()) % colors.Length;
+        return colors[index];
+    }
+
+    private string GetInitials(string title)
+    {
+        if (string.IsNullOrEmpty(title)) return "?";
+        return string.Join("", title.Split(' ').Take(2).Select(s => s[0])).ToUpper();
+    }
+
     private string FormatSize(long bytes)
     {
         string[] suffixes = { "B", "KB", "MB", "GB" };
