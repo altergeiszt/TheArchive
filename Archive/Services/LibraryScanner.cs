@@ -2,6 +2,8 @@ using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using Archive.Data;
 using Archive.Models;
+using VersOne.Epub;
+using UglyToad.PdfPig; 
 
 namespace Archive.Services
 {
@@ -14,65 +16,135 @@ namespace Archive.Services
             _scopeFactory = scopeFactory;
         }
 
-    public async Task ScanDirectoryAsync(string rootPath)
+        public async Task ScanDirectoryAsync(string rootPath)
         {
-            // Valid file extensions to look for
-            var allowedExtensions = new[]
-            {
-                ".epub", ".pdf", ".mobi"
-            };
-            // Recursively walk through the directories.
+            var allowedExtensions = new[] { ".epub", ".pdf", ".mobi", ".txt" };
+
             var files = Directory.GetFiles(rootPath, "*.*", SearchOption.AllDirectories)
-                .Where(file => allowedExtensions.Contains(Path.GetExtension(file).ToLower()));
-            
-            //Create a new scope for database access
+                                 .Where(f => allowedExtensions.Contains(Path.GetExtension(f).ToLower()));
+
             using (var scope = _scopeFactory.CreateScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<LibraryDbContext>();
 
                 foreach (var filePath in files)
                 {
-                    // Hash Calculation, 
-                    var hash = CalculateHash(filePath);
+                    try 
+                    {
+                        var hash = CalculateHash(filePath);
 
-                    // Check for exact duplicate
-                    var existingFile = await db.LibraryFiles.FirstOrDefaultAsync(file => file.FileHash == hash);
+                        // SKIP if duplicate
+                        if (await db.LibraryFiles.AnyAsync(f => f.FileHash == hash))
+                        {
+                            Console.WriteLine($"[SKIP] Duplicate: {Path.GetFileName(filePath)}");
+                            continue; 
+                        }
+                        
+                        var fileInfo = new FileInfo(filePath);
+                        var ext = fileInfo.Extension.ToLower();
+
+                        // Default Data (Filename Fallback)
+                        string title = Path.GetFileNameWithoutExtension(fileInfo.Name);
+                        string author = "Unknown";
+                        string isbn = null;
+
+                        // --- EPUB PARSER ---
+                        if (ext == ".epub")
+{
+                try 
+                {
+                    var epubBook = EpubReader.ReadBook(filePath);
+                    if (!string.IsNullOrWhiteSpace(epubBook.Title)) title = epubBook.Title;
+                    if (!string.IsNullOrWhiteSpace(epubBook.Author)) author = epubBook.Author;
                     
-                    if (existingFile != null)
-                    {
-                        // Exact Duplicate, log or skip
-                        Console.WriteLine($"[DUPLICATE] {Path.GetFileName(filePath)} matches {existingFile.FileName}");
-                        continue;
+                    // --- NEW: Extract Publisher & Subjects ---
+                    var meta = epubBook.Schema.Package.Metadata;
+                    
+                    // Publisher
+                    if (meta.Publishers.Any()) 
+                        newBook.Publisher = meta.Publishers.First(); // Take the first one
+            
+                    // Subjects (Keywords) -> Join them into a comma-separated string
+                    if (meta.Subjects.Any())
+                        newBook.Category = string.Join(", ", meta.Subjects);
+                    
+                    // ISBN (Existing logic)
+                    if (meta.Identifiers.Any(i => i.Scheme?.ToLower().Contains("isbn") == true))
+                        isbn = meta.Identifiers.First(i => i.Scheme?.ToLower().Contains("isbn") == true).Identifier;
+                    else if (meta.Identifiers.Any())
+                        isbn = meta.Identifiers.First().Identifier;
+                }
+                catch (Exception ex) { Console.WriteLine($"[WARN] Bad EPUB: {fileInfo.Name}"); }
+            }
+                        // --- NEW: PDF PARSER ---
+                        else if (ext == ".pdf")
+                        {
+                            try
+                            {
+                                using (var pdf = PdfDocument.Open(filePath))
+                                {
+                                    // 1. Extract raw metadata
+                                    var info = pdf.Information;
+                                    
+                                    // 2. Validate it (The Junk Filter)
+                                    if (info.Title != null && !string.IsNullOrWhiteSpace(info.Title))
+                                    {
+                                        // Ignore generic titles generated by printers/Word
+                                        if (!info.Title.Contains("Microsoft Word") && !info.Title.Contains("Untitled"))
+                                        {
+                                            title = info.Title;
+                                        }
+                                    }
+
+                                    if (info.Author != null && !string.IsNullOrWhiteSpace(info.Author))
+                                    {
+                                        if (!info.Author.Contains("Administrator") && !info.Author.Contains("user"))
+                                        {
+                                            author = info.Author;
+                                        }
+                                    }
+                                }
+                            }
+                            catch (Exception ex) 
+                            { 
+                                Console.WriteLine($"[WARN] Bad PDF: {fileInfo.Name} - {ex.Message}"); 
+                            }
+                        }
+
+                        // Save to DB
+                        var newBook = new Book
+                        {
+                            Title = title,
+                            Author = author,
+                            ISBN = isbn,
+                            CreatedAt = DateTime.Now
+                        };
+
+                        var newLibraryFile = new LibraryFile
+                        {
+                            Book = newBook,
+                            FilePath = filePath,
+                            FileName = fileInfo.Name,
+                            Extension = ext,
+                            FileHash = hash,
+                            SizeBytes = fileInfo.Length,
+                            Status = FileStatus.Incoming
+                        };
+
+                        db.Books.Add(newBook);
+                        db.LibraryFiles.Add(newLibraryFile);
+                        await db.SaveChangesAsync();
+                        
+                        Console.WriteLine($"[ADDED] {title} ({ext})");
                     }
-
-                    var fileInfo = new FileInfo(filePath);
-
-                    var newBook = new Book
+                    catch (Exception ex)
                     {
-                        Title = Path.GetFileNameWithoutExtension(fileInfo.Name),
-                        Author = "Unknown",
-                        CreatedAt = DateTime.Now
-                    };
-
-                    var newLibraryFile = new LibraryFile
-                    {
-                        Book = newBook,
-                        FilePath = filePath,
-                        FileName = fileInfo.Name,
-                        Extension = fileInfo.Extension.ToLower(),
-                        FileHash = hash,
-                        SizeBytes = fileInfo.Length,
-                        Status = FileStatus.Incoming
-                    };
-
-                    db.Books.Add(newBook);
-                    db.LibraryFiles.Add(newLibraryFile);
-
-                    await db.SaveChangesAsync();
-                    Console.WriteLine($"[ADDED] {fileInfo.Name}");
+                        Console.WriteLine($"[ERROR] Failed {filePath}: {ex.Message}");
+                    }
                 }
             }
-        }  
+        }
+
         private string CalculateHash(string filePath)
         {
             using (var md5 = MD5.Create())

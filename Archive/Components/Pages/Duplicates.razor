@@ -1,0 +1,92 @@
+@page "/duplicates"
+@using Archive.Services
+@using Archive.Models
+@inject DuplicateService DupService
+@rendermode InteractiveServer
+
+<PageTitle>Duplicate Manager</PageTitle>
+
+<div class="container">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>👯 Duplicate Manager</h1>
+        <button class="btn btn-primary" @onclick="LoadConflicts">🔄 Scan for Conflicts</button>
+    </div>
+
+    @if (isLoading)
+    {
+        <p>Searching for doppelgangers...</p>
+    }
+    else if (conflictGroups.Count == 0)
+    {
+        <div class="alert alert-success">🎉 No duplicates found! Your library is clean.</div>
+    }
+    else
+    {
+        <p>Found <strong>@conflictGroups.Count</strong> groups of potential duplicates.</p>
+
+        @foreach (var group in conflictGroups)
+        {
+            <div class="card mb-4 border-warning">
+                <div class="card-header bg-warning text-dark">
+                    <strong>Conflict:</strong> @group.First().Title <small>(@group.First().Author)</small>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        @foreach (var book in group)
+                        {
+                            var file = book.Files.FirstOrDefault();
+                            <div class="col-md-4">
+                                <div class="card h-100">
+                                    <div class="card-body">
+                                        <h5 class="card-title">@file?.Extension.ToUpper()</h5>
+                                        <p class="card-text">
+                                            Size: @FormatSize(file?.SizeBytes ?? 0)<br/>
+                                            Filename: <em class="text-muted" style="font-size:0.8em">@file?.FileName</em>
+                                        </p>
+                                        <button class="btn btn-success w-100" @onclick="() => KeepBook(book.Id, group)">
+                                            ✅ Keep This One
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private List<List<Book>> conflictGroups = new List<List<Book>>();
+    private bool isLoading = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadConflicts();
+    }
+
+    private async Task LoadConflicts()
+    {
+        isLoading = true;
+        conflictGroups = await DupService.GetPotentialDuplicatesAsync();
+        isLoading = false;
+    }
+
+    private async Task KeepBook(int winnerId, List<Book> group)
+    {
+        // 1. Identify the losers
+        var loserIds = group.Where(b => b.Id != winnerId).Select(b => b.Id).ToList();
+
+        // 2. Call service to nuke the losers
+        await DupService.ResolveDuplicateAsync(winnerId, loserIds);
+
+        // 3. Remove this group from the UI instantly
+        conflictGroups.Remove(group);
+    }
+
+    private string FormatSize(long bytes)
+    {
+        return $"{bytes / 1024 / 1024} MB"; // Simple MB converter
+    }
+}

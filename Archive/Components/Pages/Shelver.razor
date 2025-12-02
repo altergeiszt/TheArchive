@@ -1,0 +1,60 @@
+@page "/shelver"
+@using Archive.Services
+@inject ShelverService Organizer
+@rendermode InteractiveServer
+
+<div class="container">
+    <h1>🏗️ The Shelver</h1>
+    <p class="lead">Physically organize your files on the hard drive.</p>
+
+    <div class="card p-4">
+        <div class="mb-3">
+            <label class="form-label"><strong>1. Where should the organized library live?</strong></label>
+            <input type="text" class="form-control" @bind="targetPath" placeholder="C:\MyOrganizedLibrary" />
+            <div class="form-text">Warning: Files will be MOVED here from their current location.</div>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label"><strong>2. How should we sort them?</strong></label>
+            <select class="form-select" @bind="strategy">
+                <option value="Author">Sort by Author (e.g. /Asimov, Isaac/)</option>
+                <option value="Publisher">Sort by Publisher (e.g. /Penguin Books/)</option>
+                <option value="Category">Sort by Primary Category (e.g. /Science Fiction/)</option>
+            </select>
+        </div>
+
+        <button class="btn btn-success btn-lg" @onclick="RunShelver" disabled="@isWorking">
+            @(isWorking ? "Moving Files..." : "📦 Organize Now")
+        </button>
+
+        @if (!string.IsNullOrEmpty(message))
+        {
+            <div class="alert alert-info mt-3">@message</div>
+        }
+    </div>
+</div>
+
+@code {
+    private string targetPath = "";
+    private string strategy = "Author";
+    private string message = "";
+    private bool isWorking = false;
+
+    private async Task RunShelver()
+    {
+        if (string.IsNullOrWhiteSpace(targetPath))
+        {
+            message = "❌ Please enter a target folder path.";
+            return;
+        }
+
+        isWorking = true;
+        message = "⏳ Organizing... please wait.";
+        
+        // Run in background
+        int count = await Task.Run(() => Organizer.OrganizeLibraryAsync(targetPath, strategy));
+
+        message = $"✅ Success! Moved {count} books into sorted folders.";
+        isWorking = false;
+    }
+}

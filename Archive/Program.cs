@@ -19,8 +19,11 @@ builder.Services.AddDbContext<LibraryDbContext>(options =>
 builder.Services.AddDbContext<LibraryDbContext>(options => options.UseSqlite(connectionString));
 
 builder.Services.AddScoped<Archive.Services.LibraryScanner>();
+builder.Services.AddScoped<Archive.Services.DuplicateService>();
+builder.Services.AddScoped<Archive.Services.ShelverService>();
 
 var app = builder.Build();
+
 
 // 3. AUTOMATIC DATABASE CREATION (MVP Only)
 // This checks if library.db exists. If not, it creates it based on your Models.
