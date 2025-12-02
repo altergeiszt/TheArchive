@@ -44,6 +44,8 @@
         <MudGrid Spacing="3">
             @foreach (var file in FilteredBooks)
             {
+                @if (file.Book == null) continue;
+
                 <MudItem xs="12" sm="6" md="4" lg="3">
                     <MudCard Elevation="3" Class="h-100 d-flex flex-column hover-effect">
                         
@@ -67,10 +69,11 @@
                                 <MudChip T="string" Color="Color.Primary" Size="Size.Small" Variant="Variant.Outlined">
                                     @file.Extension.ToUpper().Replace(".", "")
                                 </MudChip>
-                                @if (file.Book.Category != "Uncategorized")
+                                
+                                @if (!string.IsNullOrWhiteSpace(file.Book.Category) && file.Book.Category != "Uncategorized")
                                 {
                                     <MudChip T="string" Color="Color.Secondary" Size="Size.Small" Variant="Variant.Text">
-                                        @file.Book.Category.Split(',')[0]
+                                        @file.Book.Category.Split(new[]{','}, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()
                                     </MudChip>
                                 }
                             </MudStack>
@@ -107,15 +110,14 @@
     private bool isLoading = true;
     private string searchString = "";
 
-    // Dynamic Filter Logic
     private IEnumerable<LibraryFile> FilteredBooks =>
         string.IsNullOrWhiteSpace(searchString) 
         ? books 
-        : books.Where(b => 
+        : books.Where(b => b.Book != null && ( // Null check here too
             (b.Book.Title?.Contains(searchString, StringComparison.OrdinalIgnoreCase) ?? false) ||
             (b.Book.Author?.Contains(searchString, StringComparison.OrdinalIgnoreCase) ?? false) ||
             (b.Book.Publisher?.Contains(searchString, StringComparison.OrdinalIgnoreCase) ?? false)
-        );
+        ));
 
     protected override async Task OnInitializedAsync()
     {
@@ -130,15 +132,16 @@
             var db = scope.ServiceProvider.GetRequiredService<LibraryDbContext>();
             books = await db.LibraryFiles
                             .Include(f => f.Book)
-                            .OrderBy(f => f.Book.Title)
+                            .OrderBy(f => f.Book!.Title) // Null-forgiving operator
                             .ToListAsync();
         }
         isLoading = false;
     }
 
-    // --- THIS IS THE METHOD YOU ASKED ABOUT ---
     private async Task ConfirmDelete(LibraryFile file)
     {
+        if (file.Book == null) return;
+
         bool? result = await DialogService.ShowMessageBox(
             "Warning", 
             $"Deleting '{file.Book.Title}' cannot be undone!", 
@@ -161,19 +164,27 @@
         }
     }
 
-    // --- Helpers for the "Placeholder Cover" ---
+    // --- Helpers ---
 
-    private string GetColor(string title)
+    private string GetColor(string? title)
     {
+        if (string.IsNullOrEmpty(title)) return "#546E7A";
         var colors = new[] { "#1E88E5", "#43A047", "#E53935", "#FB8C00", "#8E24AA", "#546E7A" };
         int index = Math.Abs(title.GetHashCode()) % colors.Length;
         return colors[index];
     }
 
-    private string GetInitials(string title)
+    private string GetInitials(string? title)
     {
-        if (string.IsNullOrEmpty(title)) return "?";
-        return string.Join("", title.Split(' ').Take(2).Select(s => s[0])).ToUpper();
+        if (string.IsNullOrWhiteSpace(title)) return "?";
+        
+        // CRASH FIX: RemoveEmptyEntries prevents crashing on double spaces like "The  Book"
+        var parts = title.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        
+        if (parts.Length == 0) return "?";
+        if (parts.Length == 1) return parts[0][0].ToString().ToUpper();
+        
+        return (parts[0][0].ToString() + parts[1][0].ToString()).ToUpper();
     }
 
     private string FormatSize(long bytes)

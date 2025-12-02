@@ -1,26 +1,73 @@
 ﻿@inherits LayoutComponentBase
-<MudThemeProvider />
+
+<MudThemeProvider Theme="@_cozyTheme" />
 <MudDialogProvider />
 <MudSnackbarProvider />
 
-<div class="page">
-    <div class="sidebar">
+<MudLayout>
+    <MudAppBar Elevation="2" Color="Color.Primary" Fixed="true">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu" 
+                       Color="Color.Inherit" 
+                       Edge="Edge.Start" 
+                       OnClick="@((e) => DrawerToggle())" />
+        
+        <MudText Typo="Typo.h6" Class="ml-3" Style="font-weight: 500;">The Archivist</MudText>
+        
+        <MudSpacer />
+        
+        <MudIconButton Icon="@Icons.Material.Filled.MoreVert" Color="Color.Inherit" Edge="Edge.End" />
+    </MudAppBar>
+
+    <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="2">
         <NavMenu />
-    </div>
+    </MudDrawer>
 
-    <main>
-        <div class="top-row px-4">
-            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
-        </div>
-
-        <article class="content px-4">
+    <MudMainContent>
+        <MudContainer MaxWidth="MaxWidth.Large" Class="mt-4 mb-4">
             @Body
-        </article>
-    </main>
-</div>
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
 
-<div id="blazor-error-ui">
-    An unhandled error has occurred.
-    <a href="" class="reload">Reload</a>
-    <span class="dismiss">🗙</span>
-</div>
+@code {
+    bool _drawerOpen = true;
+
+    void DrawerToggle()
+    {
+        _drawerOpen = !_drawerOpen;
+    }
+
+    // --- THEME DEFINITION ---
+    private MudTheme _cozyTheme = new MudTheme()
+    {
+        PaletteLight = new PaletteLight()
+        {
+            // The "Brand" colors
+            Primary = "#6D4C41",        // Warm Coffee Brown
+            Secondary = "#558B2F",      // Moss Green
+            Tertiary = "#F9A825",       // Golden Yellow (for highlights)
+
+            // The "Canvas" colors
+            Background = "#FAF3E0",     // Beige/Parchment (The page background)
+            Surface = "#FFFFFF",        // White (Card background)
+            AppbarBackground = "#4E342E", // Dark Wood (Top Bar)
+            DrawerBackground = "#FFF8E1", // Light Cream (Sidebar)
+            
+            // Text colors
+            TextPrimary = "#3E2723",    // Very Dark Brown (easier on eyes than pure black)
+            TextSecondary = "#5D4037",  // Medium Brown
+            
+            // Interaction colors
+            ActionDefault = "#5D4037",  // Icon colors
+        },
+        
+        // Optional: Typography tweaks to make it feel more "Classic"
+        Typography = new Typography()
+        {
+            Default = new Default()
+            {
+                FontFamily = new[] { "Georgia", "Times New Roman", "serif" } 
+            }
+        }
+    };
+}
