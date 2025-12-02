@@ -1,0 +1,54 @@
+﻿@page "/"
+@using Archive.Services
+@inject LibraryScanner Scanner
+@rendermode InteractiveServer
+
+<PageTitle>Ebook Organizer</PageTitle>
+
+<div class="container">
+    <h1>📚 Library Command Center</h1>
+    
+    <div class="card p-4 mt-4">
+        <h3>Import Books</h3>
+        <p>Enter the full path to your ebook folder:</p>
+        
+        <div class="input-group mb-3">
+            <input type="text" class="form-control" @bind="folderPath" placeholder="C:\Users\Me\Documents\Books" />
+            <button class="btn btn-primary" @onclick="StartScan" disabled="@isScanning">
+                @(isScanning ? "Scanning..." : "Start Scan")
+            </button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(statusMessage))
+        {
+            <div class="alert alert-info">@statusMessage</div>
+        }
+    </div>
+</div>
+
+@code {
+    private string folderPath = "";
+    private string statusMessage = "";
+    private bool isScanning = false;
+
+    private async Task StartScan()
+    {
+        if (string.IsNullOrWhiteSpace(folderPath) || !System.IO.Directory.Exists(folderPath))
+        {
+            statusMessage = "❌ Error: Directory does not exist.";
+            return;
+        }
+
+        isScanning = true;
+        statusMessage = "⏳ Scanning started... check the console for details.";
+        
+        // Run the scan in a background thread so the UI doesn't freeze
+        await Task.Run(async () => 
+        {
+            await Scanner.ScanDirectoryAsync(folderPath);
+        });
+
+        statusMessage = "✅ Scan Complete! Check your database.";
+        isScanning = false;
+    }
+}
