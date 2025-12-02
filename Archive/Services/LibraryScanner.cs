@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Archive.Data;
 using Archive.Models;
 using VersOne.Epub;
-using UglyToad.PdfPig; 
+using UglyToad.PdfPig;
 
 namespace Archive.Services
 {
@@ -20,6 +20,7 @@ namespace Archive.Services
         {
             var allowedExtensions = new[] { ".epub", ".pdf", ".mobi", ".txt" };
 
+            // 1. Find all files
             var files = Directory.GetFiles(rootPath, "*.*", SearchOption.AllDirectories)
                                  .Where(f => allowedExtensions.Contains(Path.GetExtension(f).ToLower()));
 
@@ -33,89 +34,86 @@ namespace Archive.Services
                     {
                         var hash = CalculateHash(filePath);
 
-                        // SKIP if duplicate
-                        if (await db.LibraryFiles.AnyAsync(f => f.FileHash == hash))
+                        // SKIP if we already have this specific file
+                        var existingFile = await db.LibraryFiles.FirstOrDefaultAsync(f => f.FileHash == hash);
+                        if (existingFile != null)
                         {
-                            Console.WriteLine($"[SKIP] Duplicate: {Path.GetFileName(filePath)}");
+                            Console.WriteLine($"[SKIP] Duplicate Hash: {Path.GetFileName(filePath)}");
                             continue; 
                         }
+
+                        // --- METADATA EXTRACTION ---
                         
                         var fileInfo = new FileInfo(filePath);
                         var ext = fileInfo.Extension.ToLower();
 
-                        // Default Data (Filename Fallback)
+                        // Defaults
                         string title = Path.GetFileNameWithoutExtension(fileInfo.Name);
                         string author = "Unknown";
+                        string publisher = "Unknown";
+                        string category = "Uncategorized";
                         string isbn = null;
 
-                        // --- EPUB PARSER ---
+                        // A. EPUB Logic
                         if (ext == ".epub")
-{
-                try 
-                {
-                    var epubBook = EpubReader.ReadBook(filePath);
-                    if (!string.IsNullOrWhiteSpace(epubBook.Title)) title = epubBook.Title;
-                    if (!string.IsNullOrWhiteSpace(epubBook.Author)) author = epubBook.Author;
-                    
-                    // --- NEW: Extract Publisher & Subjects ---
-                    var meta = epubBook.Schema.Package.Metadata;
-                    
-                    // Publisher
-                    if (meta.Publishers.Any()) 
-                        newBook.Publisher = meta.Publishers.First(); // Take the first one
-            
-                    // Subjects (Keywords) -> Join them into a comma-separated string
-                    if (meta.Subjects.Any())
-                        newBook.Category = string.Join(", ", meta.Subjects);
-                    
-                    // ISBN (Existing logic)
-                    if (meta.Identifiers.Any(i => i.Scheme?.ToLower().Contains("isbn") == true))
-                        isbn = meta.Identifiers.First(i => i.Scheme?.ToLower().Contains("isbn") == true).Identifier;
-                    else if (meta.Identifiers.Any())
-                        isbn = meta.Identifiers.First().Identifier;
-                }
-                catch (Exception ex) { Console.WriteLine($"[WARN] Bad EPUB: {fileInfo.Name}"); }
-            }
-                        // --- NEW: PDF PARSER ---
+                        {
+                            try 
+                            {
+                                var epubBook = EpubReader.ReadBook(filePath);
+                                
+                                if (!string.IsNullOrWhiteSpace(epubBook.Title)) title = epubBook.Title;
+                                if (!string.IsNullOrWhiteSpace(epubBook.Author)) author = epubBook.Author;
+                                
+                                // Extract Publisher & Category (For the Shelver)
+                                var meta = epubBook.Schema.Package.Metadata;
+                                if (meta.Publishers.Any()) 
+                                    publisher = meta.Publishers.First();
+
+                                if (meta.Subjects.Any())
+                                    category = string.Join(", ", meta.Subjects);
+                                
+                                // Extract ISBN
+                                if (meta.Identifiers.Any(i => i.Scheme?.ToLower().Contains("isbn") == true))
+                                    isbn = meta.Identifiers.First(i => i.Scheme?.ToLower().Contains("isbn") == true).Identifier;
+                                else if (meta.Identifiers.Any())
+                                    isbn = meta.Identifiers.First().Identifier;
+                            }
+                            catch (Exception ex) { Console.WriteLine($"[WARN] Bad EPUB: {fileInfo.Name}"); }
+                        }
+                        // B. PDF Logic
                         else if (ext == ".pdf")
                         {
                             try
                             {
                                 using (var pdf = PdfDocument.Open(filePath))
                                 {
-                                    // 1. Extract raw metadata
                                     var info = pdf.Information;
                                     
-                                    // 2. Validate it (The Junk Filter)
-                                    if (info.Title != null && !string.IsNullOrWhiteSpace(info.Title))
+                                    // Basic Junk Filter
+                                    if (!string.IsNullOrWhiteSpace(info.Title))
                                     {
-                                        // Ignore generic titles generated by printers/Word
                                         if (!info.Title.Contains("Microsoft Word") && !info.Title.Contains("Untitled"))
-                                        {
                                             title = info.Title;
-                                        }
                                     }
 
-                                    if (info.Author != null && !string.IsNullOrWhiteSpace(info.Author))
+                                    if (!string.IsNullOrWhiteSpace(info.Author))
                                     {
-                                        if (!info.Author.Contains("Administrator") && !info.Author.Contains("user"))
-                                        {
+                                        if (!info.Author.Contains("Administrator") && !info.Author.Contains("Print to PDF"))
                                             author = info.Author;
-                                        }
                                     }
                                 }
                             }
-                            catch (Exception ex) 
-                            { 
-                                Console.WriteLine($"[WARN] Bad PDF: {fileInfo.Name} - {ex.Message}"); 
-                            }
+                            catch (Exception ex) { Console.WriteLine($"[WARN] Bad PDF: {fileInfo.Name}"); }
                         }
 
-                        // Save to DB
+                        // --- SAVE TO DB ---
+                        
                         var newBook = new Book
                         {
                             Title = title,
                             Author = author,
+                            Publisher = publisher,
+                            Category = category,
                             ISBN = isbn,
                             CreatedAt = DateTime.Now
                         };
@@ -133,13 +131,14 @@ namespace Archive.Services
 
                         db.Books.Add(newBook);
                         db.LibraryFiles.Add(newLibraryFile);
-                        await db.SaveChangesAsync();
                         
-                        Console.WriteLine($"[ADDED] {title} ({ext})");
+                        // Saving per file is slower but safer for debugging
+                        await db.SaveChangesAsync();
+                        Console.WriteLine($"[ADDED] {title}");
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[ERROR] Failed {filePath}: {ex.Message}");
+                        Console.WriteLine($"[ERROR] Failed processing {filePath}: {ex.Message}");
                     }
                 }
             }
